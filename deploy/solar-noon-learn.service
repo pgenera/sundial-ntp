@@ -1,0 +1,19 @@
+[Unit]
+Description=Re-learn the shading model (calibrates against the system clock)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=chrony-solar
+Group=chrony-solar
+WorkingDirectory=/opt/chrony-solar
+ExecStart=/usr/bin/python3 -m solar_chrony.main -c /etc/chrony-solar/solar.toml learn
+StateDirectory=solar-noon
+
+NoNewPrivileges=yes
+ProtectClock=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes

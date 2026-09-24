@@ -1,0 +1,5 @@
+# Append to /etc/apparmor.d/local/usr.sbin.chronyd for chronyd-solar.
+/etc/chrony-solar/{,**} r,
+/var/lib/chrony-solar/{,*} rw,
+/var/log/chrony-solar/{,*} rw,
+@{run}/chrony-solar/{,**} rw,

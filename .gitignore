@@ -1,0 +1,9 @@
+__pycache__/
+.pytest_cache/
+*.db
+model*.json
+solar.toml
+# Secrets: never commit tokens
+ha-token
+ha_auth_token
+*token*

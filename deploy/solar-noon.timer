@@ -1,0 +1,9 @@
+[Unit]
+Description=Evening solar-noon fixes (no-op until sunset / once applied)
+
+[Timer]
+OnCalendar=*-*-* 16..23:00,30
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,45 @@
+# /etc/chrony-solar/solar.toml
+
+[site]
+latitude = 0.0            # degrees north; set to your site
+longitude = 0.0           # degrees east (negative = west)
+timezone = "America/New_York"
+
+[prometheus]
+url = "http://prometheus.example:9090"   # your Prometheus
+# Per-panel AC power; one series per inverter, keyed by `panel_label`.
+panels = "sunpower_pvs_inverter_ac_power_watts"
+panel_label = "device_id"
+# Weather-station irradiance (W/m²) via Home Assistant's exporter; the
+# fallback when the panels are snowed over.  Leave empty to disable.
+sensor = 'ha_sensor_unit_watts_per_square_meter{entity="sensor.brightness"}'
+
+[storage]
+model = "/var/lib/solar-noon/model.json"
+log = "/var/lib/solar-noon/log.db"
+
+[chrony]
+socket = "/run/chrony-solar/chronyd.sock"
+chronyc = "chronyc"
+
+[apply]
+# Run the evening fix once the sun is below this elevation (degrees).
+max_sun_elevation = 5.0
+# Subtracted from each estimate; the learned model already absorbs fixed
+# delays, so this normally stays 0.
+bias_seconds = 0
+
+[model]
+sigma_decl = 1.5
+max_extrapolation_deg = 4.0
+env_fraction = 0.75
+min_ref_watts = 60.0
+search_minutes = 20
+trim = 0.3
+min_points_panels = 400
+min_points_sensor = 60
+min_sharpness = 1.8
+sensor_clear_min = 0.7
+max_cost_factor = 2.5
+calibration_gap_days = 7
+max_disagreement_sigma = 3.0
