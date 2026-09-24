@@ -144,6 +144,7 @@ run backtest --gap 7             # how well would a week-old model have done?
 run backtest --without-panels    # ...with the panels snowed over?
 run apply --dry-run              # tonight's estimate, without touching chronyd
 run status                       # the solar chronyd's tracking and manual samples
+chronyc -h ::1 -p 11323 tracking # the same, read-only, as any local user
 journalctl -u solar-noon -u solar-noon-learn
 ```
 
