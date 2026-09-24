@@ -1,183 +1,64 @@
-# chrony-solar
+# sundial-ntp
 
-A stratum-1 NTP server whose time of day comes from where the shadows fall.
-Clients see its reference ID as **`SUN`**.
+A stratum-1 NTP server whose reference clock is the sun. More precisely, it's the shadows that trees and the roofline cast on a set of rooftop solar panels. Clients see the reference ID `SUN`.
 
-A second `chronyd` runs with `-x`: it never touches the system clock. It
-uses the (already well-disciplined) system clock as a free-running baseline
-and keeps its own offset and frequency relative to it.
+It's good to about ±45 seconds per day, which is terrible for an NTP server and excellent for a sundial.
 
-- **Each evening,** `solar-noon apply` works out from today's shadows how
-  far the sun's time is from the system clock, and publishes that offset.
-- **All the time,** `solar-noon feed` posts "the sun says it's now T" to the
-  chronyd through an NTP shared-memory (SHM) refclock, the same interface
-  gpsd uses to feed a GPS receiver's time to chrony.
+## What it is
 
-## Why shadows, not solar noon
+The host already has an ordinary chronyd keeping its system clock right. This project runs a second chronyd next to it that never touches the system clock (`-x`, and systemd blocks clock syscalls outright). It uses the system clock as a free-running baseline and takes its idea of the time of day from the sun. That second chronyd is the one that answers NTP queries.
 
-The site is heavily shaded, so "when did the sunlight peak?" has no clean
-answer:
+The original plan was to find solar noon from a weather station's irradiance sensor and set the clock by that. The sensor turned out to be in shade for most of the day, so its peak says more about the neighbour's tree than about the sun. That approach was off by 8 to 30 minutes.
 
-- the weather-station irradiance sensor only gets direct sun from about
-  −95 to +125 minutes around noon;
-- each of the 17 roof panels has its own window of direct sun, bounded by
-  trees and roofline.
+What does work is the shade itself. Each of the 17 panels on the roof has its own window of direct sun, bounded by fixed obstacles. The edges of those windows happen at the same sun positions every day. So each evening the code compares today's per-panel production against what it has learned about where the shade edges fall, finds the time shift that lines them up best, and publishes that offset. A small feeder hands it to chronyd through the same shared-memory refclock interface gpsd uses for GPS. The weather station stays on as a backup for days when the panels are covered in snow.
 
-A curve fit to the day's light was off by 8–30 minutes. The shade edges,
-though, happen at fixed sun positions and repeat day after day. That makes
-about 34 timed events per clear day across the panels, plus two on the
-sensor.
+[docs/how-it-works.md](docs/how-it-works.md) has the details, including why the model is calibrated against the system clock once a week and why that doesn't make the whole thing a fraud.
 
-## How it works
+## How well it works
 
-Every channel (each panel, and the sensor) becomes a per-minute
-**lit-fraction profile** against the hour angle (minutes from solar noon):
+Back-tested over 60 days of real data. The system clock is correct, so the right answer is always 0:
 
-- **Panels:** each panel's power divided by the second-brightest panel at
-  the same poll. Clouds dim every panel alike and cancel out. Samples count
-  only while the brightest panel shows direct sun.
-- **Sensor:** W/m² divided by a clear-sky model. It counts only on days
-  when at least 70% of its usual sunny window was actually sunny.
-
-The two phases:
-
-- **Learn** (`solar-noon learn`, weekly timer): keeps about 60 days of
-  profiles, timed by the **system clock**. This is the one place a clock is
-  consulted, so it amounts to calibrating a sundial. It also back-tests the
-  model as if it were a week old, which sets the quality gates and the
-  expected error of each group.
-- **Serve** (`solar-noon apply`, evenings): builds each channel's expected
-  profile for today's solar declination from the frozen model. It then finds
-  the single time shift that best lines today's observations up with them.
-  The panels and the sensor are fitted as separate groups. Each group must
-  have enough edge data and a clearly defined best shift; the two results
-  are combined, weighted by their back-tested accuracy.
-  - **Snow on all panels:** the panels show no direct sun, so the sensor
-    carries the estimate alone.
-  - **One panel covered or dead:** it's dropped for the day.
-  - **Overcast day:** no estimate; chronyd runs on until tomorrow.
-
-## Accuracy
-
-These numbers come from 60 days of data (2026-07-26 to 09-23; per-panel
-data starts 2026-08-21). The true answer is 0, because the system clock is
-right:
-
-| Model age | Days with an estimate | Mean | RMS | Worst |
+| model age | days with a fix | mean | RMS | worst |
 |---|---|---|---|---|
-| fresh (leave-one-out) | 21 | 0 s | 34 s | 101 s |
-| 7 days old | 15 | +9 s | 47 s | 94 s |
-| 14 days old | 11 | +5 s | 43 s | 114 s |
-| panels snowed over (sensor only), fresh | 5 | +16 s | 37 s | 55 s |
+| fresh | 21 | 0 s | 34 s | 101 s |
+| a week old | 15 | +9 s | 47 s | 94 s |
+| two weeks old | 11 | +5 s | 43 s | 114 s |
+| panels "snowed over" (sensor only) | 5 | +16 s | 37 s | 55 s |
 
-The sensor-only fallback has little history to learn from so far: only a
-handful of days were clear across its whole sunny window. It improves as
-the archive grows, and it's calibrated as a week-old model, so its weight
-starts conservative (120 s) until at least 5 days back it up.
+Cloudy days produce no fix at all rather than a bad one, and chronyd coasts until the next clear evening.
 
-While the feed is running, the server is stratum 1 with reference ID
-`SUN`. Between fixes the offset stays constant against the system clock.
-Each accepted evening fix moves it in one step; chrony tolerates this after
-a few seconds of "jitter exceeds maxjitter" in its log.
+## What you need
 
-If no fix is accepted for 14 days (`[feed] max_age_days`), the feed stops.
-chronyd then coasts on its last offset. It only falls back to its own clock
-at `local stratum 10` (reference ID `LOCL`) once its error estimate passes
-1 s, which takes days more at chrony's default 1 ppm drift assumption.
-Before the first fix ever, it serves plain system time at stratum 10.
+- chrony 4.x on Linux. It's tested with 4.9 on Debian; the hardening assumes systemd.
+- Python 3.11 or newer. It uses only the standard library.
+- Prometheus with per-panel AC power. Ours comes from [sunpower-pvs-exporter](https://github.com/pgenera/sunpower-pvs-exporter) (`sunpower_pvs_inverter_ac_power_watts`), but any per-panel power series will do.
+- Optionally, an irradiance sensor in Prometheus for the snow fallback. Ours reaches Prometheus through Home Assistant's exporter.
+- A few weeks of history, so there's something to learn from.
 
-## Privileges
+[docs/operations.md](docs/operations.md) covers installing, configuring, watching and fixing it.
 
-The solar chronyd runs as `_chrony` from the start and never has root. Its
-only capability is `CAP_NET_BIND_SERVICE`, for binding :123.
-`ProtectClock=yes` and `SystemCallFilter=~@clock` make the kernel refuse
-any clock adjustment. It listens only on
-the IPv6 address set by `bindaddress` (port 123), with
-no IPv4 sockets.
+## Quick start
 
-The feed runs as `chrony-solar` (in group `_chrony`, for the 0660 SHM
-segment), with no network access at all.
+```sh
+mkdir -p site
+cp config.example.toml site/solar.toml          # latitude, longitude, Prometheus URL
+cp deploy/chrony-solar.conf site/chrony.conf    # bindaddress, allow
+sudo deploy/install.sh
+```
+
+`site/` is git-ignored, so your coordinates stay out of the repo.
 
 ## Layout
 
 ```
-solar_chrony/solar.py       NOAA solar position (all UTC)
-solar_chrony/model.py       profiles, learning, templates, shift fit, back-test
-solar_chrony/promsource.py  raw samples from Prometheus
-solar_chrony/shm.py         NTP SHM refclock writer (stdlib ctypes)
-solar_chrony/chrony.py      chronyc wrapper (read-only status)
-solar_chrony/state.py       log of daily estimates
-solar_chrony/main.py        CLI: learn | backtest | apply | status
-deploy/                     chrony config, systemd units, AppArmor snippet
-analysis/                   the exploration that led here (charts, prototypes)
+solar_chrony/    the program: solar.py (NOAA sun position), model.py (the shade model),
+                 shm.py (NTP SHM writer), promsource.py, state.py, chrony.py, main.py
+deploy/          chrony config, systemd units, AppArmor snippet, install.sh
+tests/           pytest; test_chrony.py runs a throwaway chronyd
+analysis/        the exploration that led here, charts included
+docs/            how it works, and how to run it
 ```
 
-Data sources, both read from Prometheus (the `[prometheus] url` in the config):
+## License
 
-- `sunpower_pvs_inverter_ac_power_watts`: per panel, refreshed every 5 min.
-- `ha_sensor_unit_watts_per_square_meter{entity="sensor.brightness"}`: the
-  weather station via Home Assistant's exporter, scraped every 30 s.
-
-## Install
-
-Make this site's config from the examples, in `site/`, which git ignores:
-
-```sh
-mkdir -p site
-cp config.example.toml site/solar.toml         # set latitude, longitude, Prometheus url
-cp deploy/chrony-solar.conf site/chrony.conf   # set bindaddress and allow
-```
-
-Then install, or update in place:
-
-```sh
-sudo deploy/install.sh
-```
-
-The script:
-- creates the `chrony-solar` user;
-- copies the code to `/opt/chrony-solar` and the config to `/etc/chrony-solar`;
-- adds the AppArmor rules (Debian confines `/usr/sbin/chronyd` to its usual paths);
-- installs the systemd units and starts the solar chronyd and the feed;
-- learns the first model;
-- enables the evening `apply` timer and the weekly `learn` timer.
-
-Things to check:
-
-- **Allowed clients.** `allow` in `chrony.conf` defaults to the local /64.
-  Widen it if others should use the server, and open UDP/123 on IPv6.
-- **Primary chrony.** If it ever gets `allow`, give it a `bindaddress` too
-  so the two don't fight over `[::]:123`.
-
-## Use
-
-```sh
-cd /opt/chrony-solar
-run() { sudo -u chrony-solar python3 -m solar_chrony.main -c /etc/chrony-solar/solar.toml "$@"; }
-run learn                        # rebuild the model (the weekly timer does this)
-run backtest --gap 7             # how well would a week-old model have done?
-run backtest --without-panels    # ...with the panels snowed over?
-run apply --dry-run              # tonight's estimate, without touching chronyd
-run status                       # the solar chronyd's tracking and sources
-chronyc -h ::1 -p 11323 tracking # the same, read-only, as any local user
-journalctl -u solar-noon -u solar-noon-learn
-```
-
-Each evening's result, applied or rejected with a reason, goes into
-`/var/lib/solar-noon/log.db`.
-
-## Tests
-
-```sh
-python3 -m pytest -q
-```
-
-- `test_model.py` builds a synthetic site: 12 panels and a sensor, each
-  with its own shade window that drifts with the season. It checks that
-  known time shifts are recovered, that snow falls back to the sensor, that
-  a covered panel is dropped, and that overcast days and a stale model are
-  refused.
-- `test_chrony.py` starts a throwaway, unprivileged `chronyd -x` with a SHM
-  refclock. It checks that the feed makes it serve `SUN` at stratum 1 with
-  the published offset, that a stale fix isn't fed, and that the system
-  clock is untouched.
+MIT. See [LICENSE](LICENSE).
