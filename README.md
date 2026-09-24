@@ -105,24 +105,27 @@ Data sources, both read from Prometheus (the `[prometheus] url` in the config):
 
 ## Install
 
+Make this site's config from the examples, in `site/`, which git ignores:
+
 ```sh
-sudo install -d /opt/chrony-solar && sudo cp -r solar_chrony /opt/chrony-solar/
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin \
-     --groups _chrony chrony-solar
-
-sudo install -d /etc/chrony-solar
-sudo install -m 0644 deploy/chrony-solar.conf /etc/chrony-solar/chrony.conf
-sudo install -m 0644 config.example.toml /etc/chrony-solar/solar.toml
-
-# Debian's AppArmor profile confines /usr/sbin/chronyd to its usual paths.
-cat deploy/apparmor-local-usr.sbin.chronyd | sudo tee -a /etc/apparmor.d/local/usr.sbin.chronyd
-sudo apparmor_parser -r /etc/apparmor.d/usr.sbin.chronyd
-
-sudo cp deploy/*.service deploy/*.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl start solar-noon-learn.service      # first model
-sudo systemctl enable --now chronyd-solar.service solar-noon.timer solar-noon-learn.timer
+mkdir -p site
+cp config.example.toml site/solar.toml         # set latitude, longitude, Prometheus url
+cp deploy/chrony-solar.conf site/chrony.conf   # set bindaddress and allow
 ```
+
+Then install, or update in place:
+
+```sh
+sudo deploy/install.sh
+```
+
+The script:
+- creates the `chrony-solar` user;
+- copies the code to `/opt/chrony-solar` and the config to `/etc/chrony-solar`;
+- adds the AppArmor rules (Debian confines `/usr/sbin/chronyd` to its usual paths);
+- installs the systemd units and starts the solar chronyd;
+- learns the first model;
+- enables the evening `apply` timer and the weekly `learn` timer.
 
 Things to check:
 
