@@ -118,3 +118,29 @@ def test_save_load_roundtrip(model, tmp_path):
     a = model.estimate(model.observe(day, *synth_day(day, shift=30.0)))
     b = again.estimate(again.observe(day, *synth_day(day, shift=30.0)))
     assert a.offset == pytest.approx(b.offset, abs=0.5)
+
+
+def test_model_with_other_window_is_refused(model, tmp_path):
+    import json
+    path = tmp_path / "model.json"
+    model.save(str(path))
+    d = json.loads(path.read_text())
+    d["ha_lo"], d["ha_hi"] = -360, 360
+    path.write_text(json.dumps(d))
+    with pytest.raises(ValueError, match="re-run learn"):
+        Model.load(str(path))
+
+
+def test_summer_edges_beyond_six_hours_are_kept():
+    # A panel lit only from -420 to -380 min, which a ±360 window would lose.
+    from solar_chrony.model import panel_profiles, HA_LO
+    day = date(2026, 6, 21)
+    noon = solar.solar_noon_utc(day, LON)
+    series = {"a": [], "b": []}
+    for k in range(-460, 461, 5):
+        t = noon + 60 * k
+        drift = 0.01 * k        # real readings change at every gateway poll
+        series["a"].append((t, (200.0 if -420 <= k <= -380 else 20.0) + drift))
+        series["b"].append((t, 210.0 + drift))
+    prof, _ = panel_profiles(series, LON)
+    assert max(prof["a"][-400 - HA_LO - 5:-400 - HA_LO + 5]) > 0.9

@@ -23,7 +23,7 @@ from datetime import date
 from . import solar
 
 NAN = float("nan")
-HA_LO, HA_HI = -360, 360          # minutes from solar noon kept per day
+HA_LO, HA_HI = -480, 480          # minutes from solar noon kept per day (June days run ±454)
 NB = HA_HI - HA_LO + 1
 
 
@@ -178,7 +178,8 @@ class Model:
     # ---- persistence -------------------------------------------------
     def save(self, path: str) -> None:
         with open(path, "w") as f:
-            json.dump({"version": 1, "lat": self.lat, "lon": self.lon, "meta": self.meta,
+            json.dump({"version": 1, "ha_lo": HA_LO, "ha_hi": HA_HI,
+                       "lat": self.lat, "lon": self.lon, "meta": self.meta,
                        "stats": self.stats, "config": self.cfg.__dict__,
                        "days": [d.to_json() for d in self.days]}, f)
 
@@ -186,6 +187,8 @@ class Model:
     def load(cls, path: str, cfg: ModelConfig | None = None) -> "Model":
         with open(path) as f:
             d = json.load(f)
+        if (d.get("ha_lo", -360), d.get("ha_hi", 360)) != (HA_LO, HA_HI):
+            raise ValueError(f"{path} was learned with a different day window; re-run learn")
         return cls(d["lat"], d["lon"], [DayProfile.from_json(x) for x in d["days"]],
                    cfg or ModelConfig(**d.get("config", {})), d.get("stats"), d.get("meta"))
 
