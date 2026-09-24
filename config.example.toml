@@ -19,11 +19,19 @@ model = "/var/lib/solar-noon/model.json"
 log = "/var/lib/solar-noon/log.db"
 
 [chrony]
+# For `solar-noon status` (read-only).
 socket = "/run/chrony-solar/chronyd.sock"
 chronyc = "chronyc"
 
+[feed]
+# Must match `refclock SHM <unit>` in the solar chronyd's config.
+shm_unit = 7
+# Stop feeding if the last accepted fix is older than this.  chronyd then
+# coasts on its last offset, and eventually falls back to `local stratum 10`.
+max_age_days = 14
+
 [apply]
-# Run the evening fix once the sun is below this elevation (degrees).
+# Estimate once the sun is below this elevation (degrees).
 max_sun_elevation = 5.0
 # Subtracted from each estimate; the learned model already absorbs fixed
 # delays, so this normally stays 0.

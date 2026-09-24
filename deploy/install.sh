@@ -41,7 +41,7 @@ if [ -e /etc/apparmor.d/usr.sbin.chronyd ]; then
 fi
 
 echo "== systemd units"
-for u in chronyd-solar.service solar-noon.service solar-noon.timer \
+for u in chronyd-solar.service solar-noon-feed.service solar-noon.service solar-noon.timer \
          solar-noon-learn.service solar-noon-learn.timer; do
     install -m 0644 "deploy/$u" /etc/systemd/system/
 done
@@ -51,6 +51,10 @@ echo "== start the solar chronyd"
 systemctl enable chronyd-solar.service
 systemctl restart chronyd-solar.service
 
+echo "== start the feed (serves the latest published offset as refclock SUN)"
+systemctl enable solar-noon-feed.service
+systemctl restart solar-noon-feed.service
+
 echo "== learn the shading model (a minute or so)"
 systemctl start solar-noon-learn.service
 journalctl -u solar-noon-learn.service -n 5 --no-pager -o cat
@@ -59,7 +63,7 @@ echo "== enable timers"
 systemctl enable --now solar-noon.timer solar-noon-learn.timer
 
 echo "== status"
-systemctl --no-pager --lines=0 status chronyd-solar.service || true
+systemctl --no-pager --lines=0 status chronyd-solar.service solar-noon-feed.service || true
 ss -lunp | grep -E ':123\b' || true
-chronyc -h /run/chrony-solar/chronyd.sock tracking || true
+chronyc -h /run/chrony-solar/chronyd.sock -m tracking sources || true
 systemctl list-timers --no-pager 'solar-noon*'

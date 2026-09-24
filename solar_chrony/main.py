@@ -15,6 +15,7 @@ from . import solar
 from .chrony import Chronyc
 from .model import Model, ModelConfig, learn
 from .promsource import Prometheus
+from .shm import SegmentMissing, SHMWriter
 from .state import Log
 
 log = logging.getLogger("solar-noon")
@@ -117,7 +118,7 @@ def cmd_apply(cfg, args) -> int:
         log.info("sun not yet down (elevation %.1f°); nothing to do", elev)
         return 0
     state = Log(cfg["storage"]["log"])
-    if state.done_on(today) and not args.force:
+    if state.done_on(today) and not args.force and not args.dry_run:
         log.info("already done for %s", today)
         return 0
     model = Model.load(cfg["storage"]["model"], cfg["model_cfg"])
@@ -125,17 +126,52 @@ def cmd_apply(cfg, args) -> int:
     est = model.estimate(model.observe(today, panels, sensor),
                          bias=cfg.get("apply", {}).get("bias_seconds", 0.0))
     log.info("%s", describe(est))
-    if not est.ok or args.dry_run:
+    if args.dry_run:
         if est.ok:
-            log.info("dry run: would set solar clock to system time %+.1fs", -est.offset)
-        else:
-            state.record(est, now, applied=False)
+            log.info("dry run: would publish offset %+.1fs (solar clock = system %+.1fs)", est.offset, -est.offset)
         return 0
-    chronyc = Chronyc(cfg["chrony"]["socket"], cfg["chrony"].get("chronyc", "chronyc"))
-    out = chronyc.set_solar_offset(est.offset)
-    state.record(est, now, applied=True)
-    log.info("chronyc: %s", " | ".join(line for line in out.splitlines() if line.strip()))
+    state.record(est, now, applied=est.ok)
+    if est.ok:
+        log.info("published: the feed now serves system time %+.1fs", -est.offset)
     return 0
+
+
+def cmd_feed(cfg, args) -> int:
+    """Serve the latest published offset to chronyd's SHM refclock, forever."""
+    feed = cfg.get("feed", {})
+    unit = feed.get("shm_unit", 7)
+    max_age = feed.get("max_age_days", 14) * 86400
+    state = Log(cfg["storage"]["log"])
+    writer, current, last_check, said = None, None, 0.0, None
+    while True:
+        now = time.time()
+        if writer is None:
+            try:
+                writer = SHMWriter(unit)
+                log.info("attached to NTP SHM unit %d", unit)
+            except SegmentMissing as e:
+                if said != "missing":
+                    log.warning("%s; waiting for chronyd", e)
+                    said = "missing"
+                time.sleep(5)
+                continue
+        if now - last_check >= 60:
+            current = state.latest_published()
+            last_check = now
+        if current is None or now - current[2] > max_age:
+            msg = "no solar fix yet" if current is None else f"last solar fix ({current[0]}) is too old"
+            if said != msg:
+                log.warning("%s; not feeding chronyd", msg)
+                said = msg
+            writer.invalidate()
+        else:
+            if said != current[0]:
+                log.info("serving the %s fix: system time %+.1fs", current[0], -current[1])
+                said = current[0]
+            writer.put(now, now - current[1])
+        if args.once:
+            return 0
+        time.sleep(1)
 
 
 def cmd_status(cfg, args) -> int:
@@ -159,12 +195,16 @@ def main(argv=None) -> int:
     b.add_argument("--without-panels", action="store_true", help="simulate snow-covered panels")
     b.set_defaults(func=cmd_backtest)
 
-    a = sub.add_parser("apply", help="estimate today and feed it to chronyd (run after sunset)")
+    a = sub.add_parser("apply", help="estimate today and publish it to the feed (run after sunset)")
     a.add_argument("--dry-run", action="store_true")
     a.add_argument("--force", action="store_true", help="apply even if already applied today")
     a.set_defaults(func=cmd_apply)
 
-    s = sub.add_parser("status", help="show the solar chronyd's tracking and manual samples")
+    f = sub.add_parser("feed", help="serve the latest published offset to chronyd's SHM refclock")
+    f.add_argument("--once", action="store_true", help="post one sample and exit")
+    f.set_defaults(func=cmd_feed)
+
+    s = sub.add_parser("status", help="show the solar chronyd's tracking and sources")
     s.set_defaults(func=cmd_status)
 
     args = p.parse_args(argv)

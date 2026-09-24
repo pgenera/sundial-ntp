@@ -1,0 +1,32 @@
+[Unit]
+Description=Feed the sun's time to the solar chronyd (NTP SHM refclock)
+After=chronyd-solar.service
+BindsTo=chronyd-solar.service
+
+[Service]
+Type=exec
+User=chrony-solar
+Group=chrony-solar
+SupplementaryGroups=_chrony
+WorkingDirectory=/opt/chrony-solar
+ExecStart=/usr/bin/python3 -m solar_chrony.main -c /etc/chrony-solar/solar.toml feed
+Restart=always
+RestartSec=10
+StateDirectory=solar-noon
+
+# Needs the host IPC namespace (the SHM segment chronyd creates) and the
+# estimate log; nothing else.
+NoNewPrivileges=yes
+ProtectClock=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+
+[Install]
+WantedBy=chronyd-solar.service

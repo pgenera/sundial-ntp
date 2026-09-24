@@ -1,13 +1,17 @@
 # chrony-solar
 
 A stratum-1 NTP server whose time of day comes from where the shadows fall.
+Clients see its reference ID as **`SUN`**.
 
 A second `chronyd` runs with `-x`: it never touches the system clock. It
 uses the (already well-disciplined) system clock as a free-running baseline
-and keeps its own offset and frequency relative to it. Once each evening,
-`solar-noon apply` works out how far off the solar clock is from today's
-sunlight and tells that chronyd what time it is, via `chronyc manual on` /
-`settime`.
+and keeps its own offset and frequency relative to it.
+
+- **Each evening,** `solar-noon apply` works out from today's shadows how
+  far the sun's time is from the system clock, and publishes that offset.
+- **All the time,** `solar-noon feed` posts "the sun says it's now T" to the
+  chronyd through an NTP shared-memory (SHM) refclock, the same interface
+  gpsd uses to feed a GPS receiver's time to chrony.
 
 ## Why shadows, not solar noon
 
@@ -71,9 +75,16 @@ handful of days were clear across its whole sunny window. It improves as
 the archive grows, and it's calibrated as a week-old model, so its weight
 starts conservative (120 s) until at least 5 days back it up.
 
-The server advertises stratum 1 (`local stratum 1`; manual mode on its own
-serves "unsynchronised"). chronyd keeps up to 16 daily samples and regresses
-a frequency from them, so expect a few ppm of wander.
+While the feed is running, the server is stratum 1 with reference ID
+`SUN`. Between fixes the offset stays constant against the system clock.
+Each accepted evening fix moves it in one step; chrony tolerates this after
+a few seconds of "jitter exceeds maxjitter" in its log.
+
+If no fix is accepted for 14 days (`[feed] max_age_days`), the feed stops.
+chronyd then coasts on its last offset. It only falls back to its own clock
+at `local stratum 10` (reference ID `LOCL`) once its error estimate passes
+1 s, which takes days more at chrony's default 1 ppm drift assumption.
+Before the first fix ever, it serves plain system time at stratum 10.
 
 ## Privileges
 
@@ -84,13 +95,17 @@ any clock adjustment. It listens only on
 the IPv6 address set by `bindaddress` (port 123), with
 no IPv4 sockets.
 
+The feed runs as `chrony-solar` (in group `_chrony`, for the 0660 SHM
+segment), with no network access at all.
+
 ## Layout
 
 ```
 solar_chrony/solar.py       NOAA solar position (all UTC)
 solar_chrony/model.py       profiles, learning, templates, shift fit, back-test
 solar_chrony/promsource.py  raw samples from Prometheus
-solar_chrony/chrony.py      chronyc wrapper (manual on / settime)
+solar_chrony/shm.py         NTP SHM refclock writer (stdlib ctypes)
+solar_chrony/chrony.py      chronyc wrapper (read-only status)
 solar_chrony/state.py       log of daily estimates
 solar_chrony/main.py        CLI: learn | backtest | apply | status
 deploy/                     chrony config, systemd units, AppArmor snippet
@@ -123,7 +138,7 @@ The script:
 - creates the `chrony-solar` user;
 - copies the code to `/opt/chrony-solar` and the config to `/etc/chrony-solar`;
 - adds the AppArmor rules (Debian confines `/usr/sbin/chronyd` to its usual paths);
-- installs the systemd units and starts the solar chronyd;
+- installs the systemd units and starts the solar chronyd and the feed;
 - learns the first model;
 - enables the evening `apply` timer and the weekly `learn` timer.
 
@@ -143,7 +158,7 @@ run learn                        # rebuild the model (the weekly timer does this
 run backtest --gap 7             # how well would a week-old model have done?
 run backtest --without-panels    # ...with the panels snowed over?
 run apply --dry-run              # tonight's estimate, without touching chronyd
-run status                       # the solar chronyd's tracking and manual samples
+run status                       # the solar chronyd's tracking and sources
 chronyc -h ::1 -p 11323 tracking # the same, read-only, as any local user
 journalctl -u solar-noon -u solar-noon-learn
 ```
@@ -162,5 +177,7 @@ python3 -m pytest -q
   known time shifts are recovered, that snow falls back to the sensor, that
   a covered panel is dropped, and that overcast days and a stale model are
   refused.
-- `test_chrony.py` starts a throwaway, unprivileged `chronyd -x` and checks
-  that `settime` moves the served time and not the system clock.
+- `test_chrony.py` starts a throwaway, unprivileged `chronyd -x` with a SHM
+  refclock. It checks that the feed makes it serve `SUN` at stratum 1 with
+  the published offset, that a stale fix isn't fed, and that the system
+  clock is untouched.
