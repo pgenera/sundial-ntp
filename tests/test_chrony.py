@@ -14,6 +14,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from solar_chrony.chrony import Chronyc
 from solar_chrony.main import cmd_feed
 from solar_chrony.model import Estimate
 from solar_chrony.shm import NTP_SHM_BASE
@@ -54,8 +55,8 @@ def solar_chronyd():
     unit = 50 + os.getpid() % 40             # away from real deployments' units
     conf = os.path.join(d, "c.conf")
     with open(conf, "w") as f:
-        f.write(f"port {port}\nbindaddress ::1\nallow ::1\ncmdport 0\n"
-                f"bindcmdaddress {d}/chronyd.sock\npidfile {d}/chronyd.pid\n"
+        f.write(f"port {port}\nbindaddress ::1\nallow ::1\ncmdport {port + 1}\n"
+                f"bindcmdaddress ::1\nbindcmdaddress {d}/chronyd.sock\npidfile {d}/chronyd.pid\n"
                 f"refclock SHM {unit}:perm=0600 refid SUN poll 0\nlocal stratum 10\n")
     user = pwd.getpwuid(os.getuid()).pw_name
     proc = subprocess.Popen([binary, "-d", "-6", "-x", "-U", "-u", user, "-f", conf, "-L", "2"],
@@ -125,3 +126,14 @@ def test_feed_serves_the_median_of_recent_fixes(solar_chronyd):
     offset, stratum, leap, refid = feed_until(cfg, port, want_stratum=1)
     assert (stratum, refid) == (1, b"SUN\x00")
     assert offset == pytest.approx(-60.0, abs=0.05)
+
+
+def test_status_over_the_localhost_cmdport(solar_chronyd):
+    d, port, unit = solar_chronyd
+    cfg = {"feed": {"shm_unit": unit, "max_age_days": 14}, "storage": {"log": f"{d}/log.db"}}
+    Log(f"{d}/log.db").record(Estimate(date.today(), offset=90.0, sigma=30.0, used=["panels"]),
+                              run_at=time.time(), applied=True)
+    feed_until(cfg, port, want_stratum=1)
+    out = Chronyc("::1", port + 1).status()
+    assert "(SUN)" in out
+    assert "#* SUN" in out
