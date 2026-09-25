@@ -206,7 +206,8 @@ def cmd_feed(cfg, args) -> int:
 
 
 def cmd_status(cfg, args) -> int:
-    print(Chronyc(cfg["chrony"]["socket"], cfg["chrony"].get("chronyc", "chronyc")).status(), end="")
+    c = cfg.get("chrony", {})
+    print(Chronyc(c.get("host", "::1"), c.get("port", 11323), c.get("chronyc", "chronyc")).status(), end="")
     return 0
 
 

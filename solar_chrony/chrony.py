@@ -5,12 +5,15 @@ import subprocess
 
 
 class Chronyc:
-    def __init__(self, socket: str, chronyc: str = "chronyc"):
-        self.socket = socket
+    # The command port, not the Unix socket: chronyd answers read-only
+    # queries there for any local user, while the socket needs root or _chrony.
+    def __init__(self, host: str = "::1", port: int = 11323, chronyc: str = "chronyc"):
+        self.host = host
+        self.port = port
         self.chronyc = chronyc
 
     def run(self, *commands: str) -> str:
-        proc = subprocess.run([self.chronyc, "-h", self.socket, "-m", *commands],
+        proc = subprocess.run([self.chronyc, "-h", self.host, "-p", str(self.port), "-m", *commands],
                               env=dict(os.environ, TZ="UTC"), capture_output=True, text=True, timeout=15)
         if proc.returncode != 0:
             raise RuntimeError(f"chronyc failed ({proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}")

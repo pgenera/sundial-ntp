@@ -72,7 +72,7 @@ run backtest --gap 7          # how a week-old model would have done, per fix an
 run backtest --without-panels # the same, pretending the panels are snowed over
 run apply --dry-run           # tonight's estimate, without publishing it (after sunset)
 run learn                     # re-learn now instead of waiting for Sunday
-run status                    # tracking and sources over the Unix socket
+run status                    # tracking and sources, same as the chronyc line above
 ```
 
 Every evening's result, accepted or not, goes in `/var/lib/solar-noon/log.db`:

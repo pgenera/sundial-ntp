@@ -65,5 +65,5 @@ systemctl enable --now solar-noon.timer solar-noon-learn.timer
 echo "== status"
 systemctl --no-pager --lines=0 status chronyd-solar.service solar-noon-feed.service || true
 ss -lunp | grep -E ':123\b' || true
-chronyc -h /run/chrony-solar/chronyd.sock -m tracking sources || true
+chronyc -h ::1 -p 11323 -m tracking sources || true
 systemctl list-timers --no-pager 'solar-noon*'
