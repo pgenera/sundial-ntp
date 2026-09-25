@@ -1,6 +1,7 @@
 """Log of daily estimates; the latest accepted one is what the feed serves."""
 
 import sqlite3
+import statistics
 from datetime import date
 
 _SCHEMA = """
@@ -40,8 +41,36 @@ class Log:
         return self.db.execute("SELECT 1 FROM estimates WHERE day = ? AND (applied = 1 OR offset IS NULL)",
                                (day.isoformat(),)).fetchone() is not None
 
+    def published(self) -> list[tuple[date, float, float]]:
+        """Every accepted fix as (day, offset, run_at), the latest run per day."""
+        rows = self.db.execute(
+            "SELECT day, offset, run_at FROM estimates WHERE applied = 1 AND offset IS NOT NULL "
+            "ORDER BY run_at").fetchall()
+        per_day = {day: (date.fromisoformat(day), off, run_at) for day, off, run_at in rows}
+        return sorted(per_day.values())
+
     def latest_published(self) -> tuple[str, float, float] | None:
         """(day, offset, run_at) of the most recent accepted estimate."""
         return self.db.execute(
             "SELECT day, offset, run_at FROM estimates WHERE applied = 1 AND offset IS NOT NULL "
             "ORDER BY run_at DESC LIMIT 1").fetchone()
+
+
+def smooth(fixes: list[tuple[date, float]], days: int, stat: str = "median"):
+    """Combine the accepted fixes from the `days` days ending at the newest one.
+
+    Returns (offset, fixes used).  days=1 means just the newest fix.  The
+    sun and the system clock never drift apart, so a plain average (or a
+    median, which also ignores the odd bad day) is the right estimator;
+    fitting a slope, as chrony's manual mode does, only adds noise.
+    """
+    if not fixes:
+        return None, []
+    newest = max(d for d, _ in fixes)
+    used = sorted((d, o) for d, o in fixes if 0 <= (newest - d).days < max(1, days))
+    values = [o for _, o in used]
+    if stat == "mean":
+        return statistics.mean(values), used
+    if stat == "median":
+        return statistics.median(values), used
+    raise ValueError(f"unknown smoothing statistic {stat!r} (median or mean)")

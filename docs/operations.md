@@ -20,7 +20,7 @@ Two files, kept in `site/` (git-ignored):
 - `[site]`: latitude, longitude (negative is west), time zone. The time zone only decides what "today" means.
 - `[prometheus]`: URL, the per-panel selector, the label that identifies each panel, and the irradiance selector. Leave `sensor` empty if you don't have one.
 - `[storage]`: where the model and the estimate log live, under `/var/lib/solar-noon/`.
-- `[feed]`: the SHM unit (must match chrony's `refclock SHM <unit>`), and how many days without a fix before it stops feeding.
+- `[feed]`: the SHM unit (must match chrony's `refclock SHM <unit>`), how many days without a fix before it stops feeding, and the smoothing: the median (or mean) of the accepted fixes over the last `smoothing_days`. Set it to 1 to serve only the latest fix.
 - `[apply]`: the sun elevation below which the evening estimate runs.
 - `[model]`: the quality gates. The defaults came from about two months of real data, so leave them alone unless back-testing says otherwise.
 
@@ -68,7 +68,7 @@ The rest goes through the CLI as the service user:
 cd /opt/chrony-solar
 run() { sudo -u chrony-solar python3 -m solar_chrony.main -c /etc/chrony-solar/solar.toml "$@"; }
 
-run backtest --gap 7          # how a week-old model would have done on each learned day
+run backtest --gap 7          # how a week-old model would have done, per fix and as served
 run backtest --without-panels # the same, pretending the panels are snowed over
 run apply --dry-run           # tonight's estimate, without publishing it (after sunset)
 run learn                     # re-learn now instead of waiting for Sunday

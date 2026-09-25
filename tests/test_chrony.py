@@ -10,7 +10,7 @@ import struct
 import subprocess
 import tempfile
 import time
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -111,3 +111,17 @@ def test_stale_fix_is_not_fed(solar_chronyd):
                               run_at=time.time() - 30 * 86400, applied=True)
     offset, stratum, leap, refid = feed_until(cfg, port, want_stratum=1, seconds=5)
     assert (stratum, refid) == (10, b"\x7f\x7f\x01\x01")
+
+
+def test_feed_serves_the_median_of_recent_fixes(solar_chronyd):
+    d, port, unit = solar_chronyd
+    cfg = {"feed": {"shm_unit": unit, "max_age_days": 14, "smoothing_days": 7, "smoothing": "median"},
+           "storage": {"log": f"{d}/log.db"}}
+    state = Log(f"{d}/log.db")
+    today = date.today()
+    for back, off in ((2, 30.0), (1, 60.0), (0, 400.0)):   # one bad day
+        state.record(Estimate(today - timedelta(days=back), offset=off, sigma=30.0, used=["panels"]),
+                     run_at=time.time() - back * 86400, applied=True)
+    offset, stratum, leap, refid = feed_until(cfg, port, want_stratum=1)
+    assert (stratum, refid) == (1, b"SUN\x00")
+    assert offset == pytest.approx(-60.0, abs=0.05)

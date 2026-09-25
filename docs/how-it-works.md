@@ -68,11 +68,19 @@ The honest summary: over weeks, the offset is pinned to the system clock by re-l
 
 The same back-test also sets the thresholds and the accuracy weights. It pretends each day's model is a week old by withholding the preceding week, so the gates are tuned for a model as stale as it gets between re-learns.
 
+## One fix is noisy; a week of them isn't
+
+Each evening's fix is off by around ±45 s, and from one day to the next those errors are mostly independent. The thing being measured, the sun's time minus the system clock's, doesn't change at all. So the feed doesn't serve the latest fix. It serves the median of the accepted fixes from the 7 days ending at the newest one (`[feed] smoothing_days`, `smoothing`). In back-testing that brings the served error down to roughly 10 to 25 s RMS.
+
+chrony's manual mode would have smoothed things too, since it fits a line through its last 16 `settime` samples. But a line has a slope, and the true slope here is zero by construction. Fitting it spends half the information estimating noise, and chrony then keeps extrapolating that invented slope between fixes. Back-tested, the line fit served about 20 s RMS where a 7-day median managed about 7 s, on the days where both had data.
+
+Whether the median or the mean is better is still open. The median shrugs off the occasional bad day. The mean did slightly better in one back-test and worse in another. The log keeps every raw fix, so the choice can be replayed later against real data.
+
 ## Getting the answer into chrony
 
 The first version used chrony's manual mode: `chronyc manual on`, then `settime` with the sun's idea of the time. That works, but manual mode always reports its reference as 127.127.1.1. You can't give it a name.
 
-Refclocks can have a name. So now `solar-noon apply` just writes the day's offset to a small SQLite log, and `solar-noon feed` runs all the time, posting "the sun says it is now T" to chronyd once a second. It uses the NTP shared-memory protocol, the same `shmTime` segment and mode-1 update dance gpsd uses. chronyd is configured with
+Refclocks can have a name. So now `solar-noon apply` just writes the day's offset to a small SQLite log, and `solar-noon feed` runs all the time, posting "the sun says it is now T" to chronyd once a second. T comes from the smoothed offset described above. It uses the NTP shared-memory protocol, the same `shmTime` segment and mode-1 update dance gpsd uses. chronyd is configured with
 
 ```
 refclock SHM 7:perm=0660 refid SUN poll 4
@@ -81,7 +89,7 @@ local stratum 10
 
 and clients see stratum 1, reference ID `SUN`.
 
-When a new fix moves the offset by tens of seconds, chrony logs "Jitter of SUN exceeds maxjitter" for a few seconds, then takes the new value. Frequency stays at zero, because between fixes the sun is (by construction) running at exactly the system clock's rate.
+When a new fix moves the served offset noticeably, chrony logs "Jitter of SUN exceeds maxjitter" for a few seconds, then takes the new value. Frequency stays at zero, because between fixes the sun is (by construction) running at exactly the system clock's rate.
 
 If there's been no accepted fix for 14 days, the feed stops. chronyd then coasts on its last offset. It eventually falls back to `local stratum 10` once its error estimate grows past a second, which takes days at chrony's default 1 ppm drift assumption. Before the very first fix, it serves plain system time at stratum 10.
 
@@ -90,4 +98,4 @@ If there's been no accepted fix for 14 days, the feed stops. chronyd then coasts
 - **Leaf fall moves the shade.** Trees drop their leaves, so edges will shift through October and November. Weekly re-learning follows slow changes, but expect worse numbers while the trees are changing fastest.
 - **The history is short.** Per-panel data starts 2026-08-21, so everything above rests on about five weeks of panels and nine of the sensor. A year from now the model will have seen every season once.
 - **The snow fallback is barely tested.** Only a handful of days so far have been clear across the sensor's whole sunny window.
-- **The accuracy isn't claimed to the server's clients.** chrony reports the refclock's usual tiny dispersion, not ±45 s. Anyone who points a real NTP client at this should know what they're getting.
+- **The accuracy isn't claimed to the server's clients.** chrony reports the refclock's usual tiny dispersion, not the real ±10 to 25 s. Anyone who points a real NTP client at this should know what they're getting.

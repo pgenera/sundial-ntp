@@ -144,3 +144,19 @@ def test_summer_edges_beyond_six_hours_are_kept():
         series["b"].append((t, 210.0 + drift))
     prof, _ = panel_profiles(series, LON)
     assert max(prof["a"][-400 - HA_LO - 5:-400 - HA_LO + 5]) > 0.9
+
+
+def test_smoothing_uses_the_window_ending_at_the_newest_fix():
+    from solar_chrony.state import smooth
+    d = date(2026, 9, 1)
+    fixes = [(d, 500.0), (d + timedelta(3), 10.0), (d + timedelta(5), -20.0),
+             (d + timedelta(8), 30.0), (d + timedelta(9), 400.0)]
+    # Window of 7 days ending on the 10th: the 4th, 6th, 9th and 10th of September.
+    value, used = smooth(fixes, 7, "median")
+    assert [u[0].day for u in used] == [4, 6, 9, 10]
+    assert value == pytest.approx(20.0)             # median shrugs off the 400
+    assert smooth(fixes, 7, "mean")[0] == pytest.approx(105.0)
+    assert smooth(fixes, 1, "median")[0] == 400.0   # 1 = latest fix only
+    assert smooth([], 7) == (None, [])
+    with pytest.raises(ValueError):
+        smooth(fixes, 7, "mode")

@@ -16,7 +16,7 @@ from .chrony import Chronyc
 from .model import Model, ModelConfig, learn
 from .promsource import Prometheus
 from .shm import SegmentMissing, SHMWriter
-from .state import Log
+from .state import Log, smooth
 
 log = logging.getLogger("solar-noon")
 
@@ -29,6 +29,11 @@ def load_config(path: str) -> dict:
     known = {f.name for f in fields(ModelConfig)}
     cfg["model_cfg"] = ModelConfig(**{k: v for k, v in cfg.get("model", {}).items() if k in known})
     return cfg
+
+
+def smoothing(cfg) -> tuple[int, str]:
+    feed = cfg.get("feed", {})
+    return int(feed.get("smoothing_days", 7)), feed.get("smoothing", "median")
 
 
 def day_bounds(day: date, tz) -> tuple[float, float]:
@@ -61,7 +66,18 @@ def describe(est) -> str:
     return head + ("  (" + "; ".join(est.notes) + ")" if est.notes else "")
 
 
-def summarize(results, label: str) -> None:
+def served_series(results, days: int, stat: str, max_age_days: int = 14) -> list[float]:
+    """What clients would have been served on each day after the first fix."""
+    fixes = sorted((e.day, e.offset) for e in results if e.ok)
+    out = []
+    for e in sorted(results, key=lambda e: e.day):
+        known = [f for f in fixes if f[0] <= e.day]
+        if known and (e.day - known[-1][0]).days <= max_age_days:
+            out.append(smooth(known, days, stat)[0])
+    return out
+
+
+def summarize(results, label: str, cfg=None) -> None:
     """Accuracy of the estimates that passed their quality gates."""
     for name in ("panels", "sensor", "combined"):
         vals = [e.offset for e in results if e.ok] if name == "combined" else \
@@ -70,6 +86,13 @@ def summarize(results, label: str) -> None:
             rms = math.sqrt(sum(v * v for v in vals) / len(vals))
             print(f"{label} {name:8}: {len(vals):3d} days  mean {statistics.mean(vals):+6.1f}s  "
                   f"rms {rms:6.1f}s  worst {max(map(abs, vals)):6.1f}s")
+    if cfg is not None:
+        days, stat = smoothing(cfg)
+        vals = served_series(results, days, stat, cfg.get("feed", {}).get("max_age_days", 14))
+        if vals:
+            rms = math.sqrt(sum(v * v for v in vals) / len(vals))
+            print(f"{label} served  : {len(vals):3d} days  mean {statistics.mean(vals):+6.1f}s  "
+                  f"rms {rms:6.1f}s  worst {max(map(abs, vals)):6.1f}s  ({stat} of {days} days, every day after the first fix)")
 
 
 def cmd_learn(cfg, args) -> int:
@@ -103,7 +126,7 @@ def cmd_backtest(cfg, args) -> int:
     for est in results:
         print(describe(est))
     print()
-    summarize(results, f"gap={args.gap}{' no-panels' if args.without_panels else ''}")
+    summarize(results, f"gap={args.gap}{' no-panels' if args.without_panels else ''}", cfg)
     return 0
 
 
@@ -132,17 +155,21 @@ def cmd_apply(cfg, args) -> int:
         return 0
     state.record(est, now, applied=est.ok)
     if est.ok:
-        log.info("published: the feed now serves system time %+.1fs", -est.offset)
+        days, stat = smoothing(cfg)
+        served, used = smooth([(d, o) for d, o, _ in state.published()], days, stat)
+        log.info("published %+.1fs; the feed now serves the %s of %d fix(es): system time %+.1fs",
+                 est.offset, stat, len(used), -served)
     return 0
 
 
 def cmd_feed(cfg, args) -> int:
-    """Serve the latest published offset to chronyd's SHM refclock, forever."""
+    """Serve the smoothed published offset to chronyd's SHM refclock, forever."""
     feed = cfg.get("feed", {})
     unit = feed.get("shm_unit", 7)
     max_age = feed.get("max_age_days", 14) * 86400
+    days, stat = smoothing(cfg)
     state = Log(cfg["storage"]["log"])
-    writer, current, last_check, said = None, None, 0.0, None
+    writer, served, newest, last_check, said = None, None, None, 0.0, None
     while True:
         now = time.time()
         if writer is None:
@@ -156,19 +183,23 @@ def cmd_feed(cfg, args) -> int:
                 time.sleep(5)
                 continue
         if now - last_check >= 60:
-            current = state.latest_published()
+            fixes = state.published()
+            newest = fixes[-1] if fixes else None
+            served, used = smooth([(d, o) for d, o, _ in fixes], days, stat)
             last_check = now
-        if current is None or now - current[2] > max_age:
-            msg = "no solar fix yet" if current is None else f"last solar fix ({current[0]}) is too old"
+        if newest is None or now - newest[2] > max_age:
+            msg = "no solar fix yet" if newest is None else f"last solar fix ({newest[0]}) is too old"
             if said != msg:
                 log.warning("%s; not feeding chronyd", msg)
                 said = msg
             writer.invalidate()
         else:
-            if said != current[0]:
-                log.info("serving the %s fix: system time %+.1fs", current[0], -current[1])
-                said = current[0]
-            writer.put(now, now - current[1])
+            msg = f"{served:.3f}"
+            if said != msg:
+                log.info("serving the %s of %d fix(es) up to %s: system time %+.1fs",
+                         stat, len(used), newest[0], -served)
+                said = msg
+            writer.put(now, now - served)
         if args.once:
             return 0
         time.sleep(1)

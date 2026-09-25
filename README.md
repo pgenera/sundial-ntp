@@ -2,7 +2,7 @@
 
 A stratum-1 NTP server whose reference clock is the sun. More precisely, it's the shadows that trees and the roofline cast on a set of rooftop solar panels. Clients see the reference ID `SUN`.
 
-It's good to about ±45 seconds per day, which is terrible for an NTP server and excellent for a sundial.
+A single evening's reading is good to about ±45 seconds. The server takes the median of a week of them and gets within about 10 to 25 seconds, which is terrible for an NTP server and excellent for a sundial.
 
 ## What it is
 
@@ -16,16 +16,16 @@ What does work is the shade itself. Each of the 17 panels on the roof has its ow
 
 ## How well it works
 
-Back-tested over 60 days of real data. The system clock is correct, so the right answer is always 0:
+Back-tested over 60 days of real data. The system clock is correct, so the right answer is always 0. "One fix" is a single evening's estimate. "Served" is what clients actually get: the median of the last week's accepted fixes, measured every day after the first fix, cloudy days included.
 
-| model age | days with a fix | mean | RMS | worst |
+| model age | one fix, RMS | one fix, worst | served, RMS | served, worst |
 |---|---|---|---|---|
-| fresh | 21 | 0 s | 34 s | 101 s |
-| a week old | 15 | +9 s | 47 s | 94 s |
-| two weeks old | 11 | +5 s | 43 s | 114 s |
-| panels "snowed over" (sensor only) | 5 | +16 s | 37 s | 55 s |
+| fresh | 34 s | 101 s | 10 s | 30 s |
+| a week old | 47 s | 94 s | 25 s | 83 s |
+| two weeks old | 43 s | 114 s | 12 s | 25 s |
+| panels snowed over (sensor only) | 37 s | 55 s | 19 s | 53 s |
 
-Cloudy days produce no fix at all rather than a bad one, and chronyd coasts until the next clear evening.
+The worst served values come from the first few days, before there's a week of fixes to take a median of. Cloudy days produce no fix at all rather than a bad one, and the server keeps serving the last median.
 
 ## What you need
 
