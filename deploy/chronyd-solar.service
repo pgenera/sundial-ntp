@@ -23,7 +23,6 @@ SystemCallArchitectures=native
 RuntimeDirectory=chrony-solar
 RuntimeDirectoryMode=0770
 StateDirectory=chrony-solar
-LogsDirectory=chrony-solar
 
 ProtectSystem=strict
 ProtectHome=yes

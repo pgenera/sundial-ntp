@@ -84,7 +84,7 @@ sudo sqlite3 /var/lib/solar-noon/log.db \
 
 `notes` says why a day was rejected. The usual reasons are "ambiguous fit", "not clear enough" or "no usable data", all of which mean clouds.
 
-Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn` and `chronyd-solar`. chronyd also writes `tracking.log` and `refclocks.log` to `/var/log/chrony-solar/`.
+Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn` and `chronyd-solar`. chronyd writes no statistics files; the feed logs a line whenever the offset it serves changes.
 
 ## When things go wrong
 
@@ -96,7 +96,7 @@ Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn
 
 **`apply` says a model "was learned with a different day window".** The code changed the profile format. Run `learn` again.
 
-**chronyd-solar won't start on Debian.** AppArmor probably. Look for `apparmor="DENIED"` in `journalctl -k`. The installer adds paths for `/etc/chrony-solar`, `/run/chrony-solar`, `/var/lib/chrony-solar` and `/var/log/chrony-solar`; anything else you add needs the same treatment.
+**chronyd-solar won't start on Debian.** AppArmor probably. Look for `apparmor="DENIED"` in `journalctl -k`. The installer adds paths for `/etc/chrony-solar`, `/run/chrony-solar` and `/var/lib/chrony-solar`; anything else you add needs the same treatment.
 
 **Accuracy got worse.** Probably leaf fall or new shade. Run `backtest --gap 7` and look at the per-day lines. A shift that sits consistently to one side means the shade has moved since the model was learned. Re-learning fixes that once enough new days are in.
 
@@ -107,7 +107,7 @@ sudo systemctl disable --now solar-noon.timer solar-noon-learn.timer solar-noon-
 sudo rm /etc/systemd/system/{chronyd-solar,solar-noon,solar-noon-feed,solar-noon-learn}.service \
         /etc/systemd/system/{solar-noon,solar-noon-learn}.timer
 sudo systemctl daemon-reload
-sudo rm -r /opt/chrony-solar /etc/chrony-solar /var/lib/solar-noon /var/lib/chrony-solar /var/log/chrony-solar
+sudo rm -r /opt/chrony-solar /etc/chrony-solar /var/lib/solar-noon /var/lib/chrony-solar
 sudo ipcrm -M 0x4e545037
 sudo userdel chrony-solar
 ```
