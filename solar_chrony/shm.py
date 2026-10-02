@@ -63,7 +63,7 @@ class SHMWriter:
             self._int(usec).value = int(frac * 1e6)
             self._uint(nsec).value = int(frac * 1e9)
         self._int(_LEAP).value = 0
-        self._int(_PRECISION).value = precision
+        self._int(_PRECISION).value = precision   # chronyd ignores this; see refclock.py
         self._int(_NSAMPLES).value = 3
         self._int(_COUNT).value += 1
         self._int(_VALID).value = 1

@@ -41,12 +41,12 @@ class Log:
         return self.db.execute("SELECT 1 FROM estimates WHERE day = ? AND (applied = 1 OR offset IS NULL)",
                                (day.isoformat(),)).fetchone() is not None
 
-    def published(self) -> list[tuple[date, float, float]]:
-        """Every accepted fix as (day, offset, run_at), the latest run per day."""
+    def published(self) -> list[tuple[date, float, float, float]]:
+        """Every accepted fix as (day, offset, run_at, sigma), the latest run per day."""
         rows = self.db.execute(
-            "SELECT day, offset, run_at FROM estimates WHERE applied = 1 AND offset IS NOT NULL "
+            "SELECT day, offset, run_at, sigma FROM estimates WHERE applied = 1 AND offset IS NOT NULL "
             "ORDER BY run_at").fetchall()
-        per_day = {day: (date.fromisoformat(day), off, run_at) for day, off, run_at in rows}
+        per_day = {day: (date.fromisoformat(day), off, run_at, sigma) for day, off, run_at, sigma in rows}
         return sorted(per_day.values())
 
     def latest_published(self) -> tuple[str, float, float] | None:

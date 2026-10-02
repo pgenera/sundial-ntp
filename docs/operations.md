@@ -9,7 +9,7 @@ You need a Linux host running chrony 4.x (this was built on Debian with chrony 4
 
 It needs a few weeks of history before the model is worth anything. Two months is better.
 
-If the host already runs chrony for its own clock, that's fine; the two instances don't share anything. The solar one listens on a single IPv6 address. If the main chronyd ever starts serving NTP too, give it a `bindaddress` so the two don't both try to own `[::]:123`.
+If the host already runs chrony for its own clock, that's fine; the two instances don't share anything. The solar one listens on a single IPv6 address, or on every address of one interface with `binddevice`. If the main chronyd ever starts serving NTP too, give it a `bindaddress` so the two don't both try to own `[::]:123`.
 
 ## Configuration
 
@@ -20,11 +20,11 @@ Two files, kept in `site/` (git-ignored):
 - `[site]`: latitude, longitude (negative is west), time zone. The time zone only decides what "today" means.
 - `[prometheus]`: URL, the per-panel selector, the label that identifies each panel, and the irradiance selector. Leave `sensor` empty if you don't have one.
 - `[storage]`: where the model and the estimate log live, under `/var/lib/solar-noon/`.
-- `[feed]`: the SHM unit (must match chrony's `refclock SHM <unit>`), how many days without a fix before it stops feeding, and the smoothing: the median (or mean) of the accepted fixes over the last `smoothing_days`. Set it to 1 to serve only the latest fix.
+- `[feed]`: the SHM unit (must match chrony's `refclock SHM <unit>`), how many days without a fix before it stops feeding, and the smoothing: the median (or mean) of the accepted fixes over the last `smoothing_days`. Set it to 1 to serve only the latest fix. `refclock_conf`, `error_factor` and `error_growth_per_day` set the error bound advertised to clients; see [how-it-works.md](how-it-works.md#telling-clients-how-wrong-it-is).
 - `[apply]`: the sun elevation below which the evening estimate runs.
 - `[model]`: the quality gates. The defaults came from about two months of real data, so leave them alone unless back-testing says otherwise.
 
-**`site/chrony.conf`**, from `deploy/chrony-solar.conf`. Set `bindaddress` to the IPv6 address to serve on, and `allow` to whoever may use it. Everything else should be left as it is.
+**`site/chrony.conf`**, from `deploy/chrony-solar.conf`. Set `bindaddress` to the IPv6 address to serve on (chronyd takes only one; use `binddevice <interface>` instead to serve every address on an interface), and `allow` to whoever may use it, `::/0` for everyone. Everything else should be left as it is.
 
 ## Installing and updating
 
@@ -39,10 +39,13 @@ Run it from the repository root. It's idempotent, so re-run it after pulling cha
 3. appends rules to `/etc/apparmor.d/local/usr.sbin.chronyd` (Debian confines chronyd to its usual paths);
 4. installs and starts the units:
    - `chronyd-solar.service`, the second chronyd;
+   - `chronyd-solar-refclock.path`, which restarts it when the feed rewrites `/var/lib/solar-noon/refclock.conf` with a new error bound;
    - `solar-noon-feed.service`, the SHM feeder;
    - `solar-noon.timer`, the evening estimate, every 30 minutes from 16:00 to 23:30;
    - `solar-noon-learn.timer`, the weekly re-learn, Sundays at 03:00;
 5. learns a first model.
+
+Before that it writes the first `refclock.conf`, since chronyd won't start without it.
 
 Until the first clear evening, the server answers at stratum 10 with plain system time. That's expected.
 
@@ -60,7 +63,7 @@ Anyone on the host can look at the solar clock, read-only:
 chronyc -h ::1 -p 11323 -m tracking sources
 ```
 
-With `SUN` selected you'll see `#* SUN`, stratum 1, and a "System time" that's the sun's current opinion of the system clock.
+With `SUN` selected you'll see `#* SUN`, stratum 1, and a "System time" that's the sun's current opinion of the system clock. "Root dispersion" is the error bound from `/var/lib/solar-noon/refclock.conf`.
 
 The rest goes through the CLI as the service user:
 
@@ -73,6 +76,7 @@ run backtest --without-panels # the same, pretending the panels are snowed over
 run apply --dry-run           # tonight's estimate, without publishing it (after sunset)
 run learn                     # re-learn now instead of waiting for Sunday
 run status                    # tracking and sources over ::1 port 11323
+run refclock                  # rewrite refclock.conf with the current error bound now
 ```
 
 Every evening's result, accepted or not, goes in `/var/lib/solar-noon/log.db`:
@@ -90,7 +94,9 @@ Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn
 
 **The feed logs "no NTP SHM segment".** chronyd isn't running, or its `refclock SHM` unit doesn't match `[feed] shm_unit`. Check `ipcs -m`: unit 7 is key `0x4e545037`, and it should be owned by `_chrony` with mode 660. If some other process created that key first, with the wrong owner or permissions, chronyd can't use it. Remove it with `ipcrm -M 0x4e545037` and restart `chronyd-solar`.
 
-**`SUN` shows up in `sources` but never gets selected.** Normal until the first accepted fix; the feed deliberately posts nothing until then. After that, check `journalctl -u solar-noon-feed` for "too old" (no fix for `max_age_days`).
+**`SUN` shows up in `sources` but never gets selected.** Normal until the first accepted fix; the feed deliberately posts nothing until then. After that, check `journalctl -u solar-noon-feed` for "too old" (no fix for `max_age_days`), in which case `/var/lib/solar-noon/refclock.conf` says `noselect`. If `sources -v` marks it `d` (distance too large), `chrony.conf` is missing the raised `maxdistance`.
+
+**chronyd-solar restarts now and then.** That's the error bound changing: at each new fix, and once a day as the newest fix ages. `journalctl -u chronyd-solar-refclock` lists them. More often than that means something else is rewriting `refclock.conf`.
 
 **`apply` says "model stale".** Today's sun path is more than 4° of declination from anything in the model. That means the weekly re-learn hasn't been running. Run `learn`, then check `systemctl list-timers 'solar-noon*'`.
 
@@ -103,9 +109,10 @@ Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn
 ## Removing it
 
 ```sh
-sudo systemctl disable --now solar-noon.timer solar-noon-learn.timer solar-noon-feed.service chronyd-solar.service
-sudo rm /etc/systemd/system/{chronyd-solar,solar-noon,solar-noon-feed,solar-noon-learn}.service \
-        /etc/systemd/system/{solar-noon,solar-noon-learn}.timer
+sudo systemctl disable --now solar-noon.timer solar-noon-learn.timer chronyd-solar-refclock.path \
+        solar-noon-feed.service chronyd-solar.service
+sudo rm /etc/systemd/system/{chronyd-solar,chronyd-solar-refclock,solar-noon,solar-noon-feed,solar-noon-learn}.service \
+        /etc/systemd/system/{solar-noon,solar-noon-learn}.timer /etc/systemd/system/chronyd-solar-refclock.path
 sudo systemctl daemon-reload
 sudo rm -r /opt/chrony-solar /etc/chrony-solar /var/lib/solar-noon /var/lib/chrony-solar
 sudo ipcrm -M 0x4e545037

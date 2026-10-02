@@ -28,8 +28,8 @@ chronyc = "chronyc"
 [feed]
 # Must match `refclock SHM <unit>` in the solar chronyd's config.
 shm_unit = 7
-# Stop feeding if the last accepted fix is older than this.  chronyd then
-# coasts on its last offset, and eventually falls back to `local stratum 10`.
+# Stop feeding if the last accepted fix is older than this.  The refclock
+# file then marks SUN noselect, and chronyd falls back to `local stratum 10`.
 max_age_days = 14
 # Serve the median (or mean) of the accepted fixes from this many days,
 # ending at the newest one.  Each day's fix is about ±45 s of mostly
@@ -37,6 +37,15 @@ max_age_days = 14
 # 1 serves only the latest fix.
 smoothing_days = 7
 smoothing = "median"
+# Error bound the solar chronyd advertises, as the `precision` of its SUN
+# refclock (chronyd ignores the SHM segment's own precision field).  The
+# feed writes the refclock line to this file whenever the bound changes,
+# and chronyd-solar-refclock.path restarts chronyd-solar to read it.  The
+# bound is error_factor x the RMS sigma of the fixes in the median / sqrt(n),
+# plus error_growth_per_day for each day since the newest fix.
+refclock_conf = "/var/lib/solar-noon/refclock.conf"
+error_factor = 1.25
+error_growth_per_day = 5.0
 
 [apply]
 # Estimate once the sun is below this elevation (degrees).

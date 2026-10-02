@@ -52,7 +52,8 @@ sudo deploy/install.sh
 
 ```
 solar_chrony/    the program: solar.py (NOAA sun position), model.py (the shade model),
-                 shm.py (NTP SHM writer), promsource.py, state.py, chrony.py, main.py
+                 shm.py (NTP SHM writer), refclock.py (the advertised error bound),
+                 promsource.py, state.py, chrony.py, main.py
 deploy/          chrony config, systemd units, AppArmor snippet, install.sh
 tests/           pytest; test_chrony.py runs a throwaway chronyd
 analysis/        the exploration that led here, charts included

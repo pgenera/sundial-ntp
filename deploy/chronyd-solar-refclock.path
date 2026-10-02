@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch the sun's error bound in the solar chronyd's refclock line
+
+[Path]
+# solar-noon feed rewrites this (atomically, only on change) when the error
+# bound moves: at a new fix, once a day as the newest fix ages, and when it
+# goes stale.  chronyd can't re-read a refclock, so it has to restart.
+PathChanged=/var/lib/solar-noon/refclock.conf
+Unit=chronyd-solar-refclock.service
+
+[Install]
+WantedBy=paths.target

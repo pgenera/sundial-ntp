@@ -15,6 +15,7 @@ from . import solar
 from .chrony import Chronyc
 from .model import Model, ModelConfig, learn
 from .promsource import Prometheus
+from .refclock import refclock_conf, served_error, write_if_changed
 from .shm import SegmentMissing, SHMWriter
 from .state import Log, smooth
 
@@ -156,9 +157,35 @@ def cmd_apply(cfg, args) -> int:
     state.record(est, now, applied=est.ok)
     if est.ok:
         days, stat = smoothing(cfg)
-        served, used = smooth([(d, o) for d, o, _ in state.published()], days, stat)
+        served, used = smooth([(d, o) for d, o, *_ in state.published()], days, stat)
         log.info("published %+.1fs; the feed now serves the %s of %d fix(es): system time %+.1fs",
                  est.offset, stat, len(used), -served)
+    return 0
+
+
+def update_refclock(cfg, fixes) -> bool:
+    """Rewrite the refclock include file if the error bound changed."""
+    feed = cfg.get("feed", {})
+    path = feed.get("refclock_conf")
+    if not path:
+        return False
+    days, _ = smoothing(cfg)
+    error = None
+    if fixes and time.time() - fixes[-1][2] <= feed.get("max_age_days", 14) * 86400:
+        error = served_error([(d, o, s) for d, o, _, s in fixes], days, datetime.now(cfg.get("tz")).date(),
+                             feed.get("error_factor", 1.25), feed.get("error_growth_per_day", 5.0))
+    if not write_if_changed(path, refclock_conf(feed.get("shm_unit", 7), error)):
+        return False
+    log.info("refclock error bound now %s; chronyd-solar restarts to pick it up",
+             "unset (no current fix; SUN noselect)" if error is None else f"{error:.0f}s")
+    return True
+
+
+def cmd_refclock(cfg, args) -> int:
+    """Write the refclock include file now (the installer does, before chronyd starts)."""
+    update_refclock(cfg, Log(cfg["storage"]["log"]).published())
+    path = cfg.get("feed", {}).get("refclock_conf")
+    print(open(path).read() if path else "no [feed] refclock_conf configured", end="")
     return 0
 
 
@@ -185,7 +212,8 @@ def cmd_feed(cfg, args) -> int:
         if now - last_check >= 60:
             fixes = state.published()
             newest = fixes[-1] if fixes else None
-            served, used = smooth([(d, o) for d, o, _ in fixes], days, stat)
+            served, used = smooth([(d, o) for d, o, *_ in fixes], days, stat)
+            update_refclock(cfg, fixes)
             last_check = now
         if newest is None or now - newest[2] > max_age:
             msg = "no solar fix yet" if newest is None else f"last solar fix ({newest[0]}) is too old"
@@ -235,6 +263,9 @@ def main(argv=None) -> int:
     f = sub.add_parser("feed", help="serve the latest published offset to chronyd's SHM refclock")
     f.add_argument("--once", action="store_true", help="post one sample and exit")
     f.set_defaults(func=cmd_feed)
+
+    r = sub.add_parser("refclock", help="write chronyd's refclock include file with the current error bound")
+    r.set_defaults(func=cmd_refclock)
 
     s = sub.add_parser("status", help="show the solar chronyd's tracking and sources")
     s.set_defaults(func=cmd_status)

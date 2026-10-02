@@ -83,19 +83,30 @@ The first version used chrony's manual mode: `chronyc manual on`, then `settime`
 Refclocks can have a name. So now `solar-noon apply` just writes the day's offset to a small SQLite log, and `solar-noon feed` runs all the time, posting "the sun says it is now T" to chronyd once a second. T comes from the smoothed offset described above. It uses the NTP shared-memory protocol, the same `shmTime` segment and mode-1 update dance gpsd uses. chronyd is configured with
 
 ```
-refclock SHM 7:perm=0660 refid SUN poll 4
-local stratum 10
+include /var/lib/solar-noon/refclock.conf
+maxdistance 1000
+local stratum 10 distance 1000
 ```
 
-and clients see stratum 1, reference ID `SUN`.
+where the include file holds the refclock itself, `refclock SHM 7:perm=0660 refid SUN poll 4 precision 60`, and clients see stratum 1, reference ID `SUN`.
 
 When a new fix moves the served offset noticeably, chrony logs "Jitter of SUN exceeds maxjitter" for a few seconds, then takes the new value. Frequency stays at zero, because between fixes the sun is (by construction) running at exactly the system clock's rate.
 
-If there's been no accepted fix for 14 days, the feed stops. chronyd then coasts on its last offset. It eventually falls back to `local stratum 10` once its error estimate grows past a second, which takes days at chrony's default 1 ppm drift assumption. Before the very first fix, it serves plain system time at stratum 10.
+If there's been no accepted fix for 14 days, the feed stops and marks the refclock `noselect`, so chronyd falls back to `local stratum 10` and serves plain system time. It does the same before the very first fix.
+
+## Telling clients how wrong it is
+
+An NTP server tells clients how far off it might be: the root distance, half the root delay plus the root dispersion. With nothing else configured, chronyd gives a refclock a dispersion of the system clock's precision, about 15 µs here. That told the world the sun was good to microseconds while it was 18 s off.
+
+The obvious fix doesn't work. The SHM segment has a `precision` field, and the feed fills it in, but chronyd has never read it. The only place the error can go is the `precision` option on the `refclock` line, which chronyd adds to every sample's dispersion. That's a config setting, and chronyd can't re-read a refclock without restarting. So the refclock line lives in its own file. The feed rewrites that file when the error bound changes, and `chronyd-solar-refclock.path` restarts chronyd to read it. [chrony-shm-precision.md](chrony-shm-precision.md) has the source-code digging and the alternatives that were ruled out.
+
+The bound is 1.25 × the RMS sigma of the fixes in the median, divided by √n. In back-testing that covers 95% of served days. One fix with a sigma of 47 s gives 60 s; a clear week brings it down to about 25 s. The served value doesn't really get worse with age, since the system clock and the sun don't drift apart, but an old fix is old news, so the bound grows by 5 s for each day since the newest fix. It's rounded up to whole seconds, so between fixes it changes at most once a day. Each change costs a restart, and after one chronyd takes about 16 s to select `SUN` again; meanwhile clients get the stratum-10 fallback.
+
+An honest bound of tens of seconds is far beyond what any client accepts (chrony 3 s, systemd-timesyncd 5 s, ntpd 1.5 s), so clients see the sun's time but won't sync to it. The solar chronyd needs `maxdistance` raised to keep using its own refclock, and `local ... distance` raised so the local fallback doesn't take over whenever the sun's distance passes a second. That last setting is also why the stale case uses `noselect`: chronyd's dispersion grows by about a microsecond per second, so it would never reach 1000 s on its own.
 
 ## What it doesn't do
 
 - **Leaf fall moves the shade.** Trees drop their leaves, so edges will shift through October and November. Weekly re-learning follows slow changes, but expect worse numbers while the trees are changing fastest.
 - **The history is short.** Per-panel data starts 2026-08-21, so everything above rests on about five weeks of panels and nine of the sensor. A year from now the model will have seen every season once.
 - **The snow fallback is barely tested.** Only a handful of days so far have been clear across the sensor's whole sunny window.
-- **The accuracy isn't claimed to the server's clients.** chrony reports the refclock's usual tiny dispersion, not the real ±10 to 25 s. Anyone who points a real NTP client at this should know what they're getting.
+- **Nothing will sync to it.** The root distance it advertises is honest, which puts it far past every common client's limit. Clients can see what the sun thinks, with `sntp`, `ntpdate -q` or `chronyd -Q`, but they won't set their clocks by it.

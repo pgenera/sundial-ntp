@@ -34,22 +34,31 @@ echo "== apparmor"
 LOCAL=/etc/apparmor.d/local/usr.sbin.chronyd
 if [ -e /etc/apparmor.d/usr.sbin.chronyd ]; then
     touch "$LOCAL"
-    grep -q chrony-solar "$LOCAL" || cat deploy/apparmor-local-usr.sbin.chronyd >> "$LOCAL"
+    grep -v '^#' deploy/apparmor-local-usr.sbin.chronyd | while read -r rule; do
+        grep -qxF "$rule" "$LOCAL" || echo "$rule" >> "$LOCAL"
+    done
     if command -v apparmor_parser >/dev/null && [ -d /sys/kernel/security/apparmor ]; then
         apparmor_parser -r /etc/apparmor.d/usr.sbin.chronyd
     fi
 fi
 
 echo "== systemd units"
-for u in chronyd-solar.service solar-noon-feed.service solar-noon.service solar-noon.timer \
+for u in chronyd-solar.service chronyd-solar-refclock.path chronyd-solar-refclock.service \
+         solar-noon-feed.service solar-noon.service solar-noon.timer \
          solar-noon-learn.service solar-noon-learn.timer; do
     install -m 0644 "deploy/$u" /etc/systemd/system/
 done
 systemctl daemon-reload
 
+echo "== refclock line with the current error bound -> /var/lib/solar-noon/refclock.conf"
+install -d -o chrony-solar -g chrony-solar /var/lib/solar-noon
+(cd /opt/chrony-solar &&
+    runuser -u chrony-solar -- python3 -m solar_chrony.main -c /etc/chrony-solar/solar.toml refclock)
+
 echo "== start the solar chronyd"
 systemctl enable chronyd-solar.service
 systemctl restart chronyd-solar.service
+systemctl enable --now chronyd-solar-refclock.path
 
 echo "== start the feed (serves the latest published offset as refclock SUN)"
 systemctl enable solar-noon-feed.service

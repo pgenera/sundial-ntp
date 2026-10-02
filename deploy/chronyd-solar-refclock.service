@@ -1,0 +1,6 @@
+[Unit]
+Description=Restart the solar chronyd to read its new refclock error bound
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl try-restart chronyd-solar.service

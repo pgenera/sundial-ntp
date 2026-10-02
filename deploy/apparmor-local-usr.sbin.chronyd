@@ -1,4 +1,5 @@
 # Append to /etc/apparmor.d/local/usr.sbin.chronyd for chronyd-solar.
 /etc/chrony-solar/{,**} r,
 /var/lib/chrony-solar/{,*} rw,
+/var/lib/solar-noon/refclock.conf r,
 @{run}/chrony-solar/{,**} rw,
