@@ -27,6 +27,25 @@ Back-tested over 60 days of real data. The system clock is correct, so the right
 
 The worst served values come from the first few days, before there's a week of fixes to take a median of. Cloudy days produce no fix at all rather than a bad one, and the server keeps serving the last median.
 
+## Try it
+
+The server is at `2001:470:1f07:e17::1200`, IPv6 only. The `1200` is noon.
+
+Nothing will set its clock by it. It advertises its real error, tens of seconds, and NTP clients throw away any reply claiming more than 16 s, which is NTP's maximum dispersion. That includes query tools like `chronyd -Q`. To see what the sun thinks anyway, read the reply yourself:
+
+```sh
+python3 - <<'E'
+import socket, struct, time
+s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM); s.settimeout(3)
+t0 = time.time(); s.sendto(b"\x23" + 47 * b"\0", ("2001:470:1f07:e17::1200", 123)); r = s.recv(48); t1 = time.time()
+sec, frac = struct.unpack("!II", r[40:48]); delay, disp = struct.unpack("!II", r[4:12])
+print(f"sun minus your clock: {sec - 2208988800 + frac / 2**32 - (t0 + t1) / 2:+.1f} s, "
+      f"give or take {delay / 2**17 + disp / 2**16:.0f} s (stratum {r[1]}, {r[12:16].rstrip(bytes(1)).decode()})")
+E
+```
+
+If your clock is right, the answer is how wrong the sun is.
+
 ## What you need
 
 - chrony 4.x on Linux. It's tested with 4.9 on Debian; the hardening assumes systemd.

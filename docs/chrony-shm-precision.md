@@ -111,6 +111,7 @@ Caveats to raise up front:
 
 - **Power-of-two steps.** The field only allows 16, 32, 64 s and so on. That's fine for a sundial and for gpsd's uses, but it isn't a general-purpose error channel.
 - **The local-reference interaction.** Large dispersions need `maxdistance` and `local ... distance` raised, and after the samples stop, chronyd coasts with the last dispersion growing about 1 ppm. A driver that sets precision dynamically probably wants that documented.
+- **Clients drop anything over 16 s anyway.** chrony's client discards replies with root delay/2 + root dispersion ≥ `NTP_MAX_DISPERSION` (16 s, RFC 5905's MAXDISP), `test7` in `ntp_core.c:2061`, before `maxdistance` applies. Found after deploying: at 105 s, even `chronyd -Q 'server …' 'maxdistance 1000'` says "No suitable source". So an honest bound above 16 s is only visible to hand-rolled queries, and anything this patch passes through above 16 s is outside what NTP can express. That's a fair objection to raise before the maintainer does.
 - **Likely objections.** The maintainer may prefer a configurable dispersion on `SOCK` instead (gpsd's preferred interface), or may regard "a refclock whose error changes" as something for an NTP source rather than a refclock.
 
 ## Draft for chrony-dev

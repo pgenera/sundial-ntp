@@ -26,6 +26,16 @@ Two files, kept in `site/` (git-ignored):
 
 **`site/chrony.conf`**, from `deploy/chrony-solar.conf`. Set `bindaddress` to the IPv6 address to serve on (chronyd takes only one; use `binddevice <interface>` instead to serve every address on an interface), and `allow` to whoever may use it, `::/0` for everyone. Everything else should be left as it is.
 
+The public server is `2001:470:1f07:e17::1200`, served alongside the host's EUI-64 address on the tunnel VLAN `eno1.8` (hence `binddevice eno1.8`). With systemd-networkd, a fixed suffix like that is one more token in the interface's `.network` file, next to the SLAAC one:
+
+```ini
+[IPv6AcceptRA]
+Token=eui64
+Token=static:::1200
+```
+
+then `sudo networkctl reload`. Pick a suffix that survives being printed. Tools print addresses in RFC 5952 form, which collapses the longest run of zero groups, so `::12:0:0` comes out as `0:12::`. `::1200` prints as written.
+
 ## Installing and updating
 
 ```sh
