@@ -9,5 +9,6 @@ Scratch work from figuring out what the data could and couldn't do. None of it i
 - `edges.py SCRATCH_DIR LAT LON`: first prototype, timing each shade edge by where it crosses 0.5. About 85 s RMS.
 - `template.py SCRATCH_DIR LAT LON`: second prototype, fitting whole profiles. About 33 s RMS; this became `solar_chrony/model.py`.
 - `plot3.py SCRATCH_DIR LAT LON`: draws the panel chart as SVG.
+- `peak.py SOLAR_TOML MODEL_JSON`: whether the peak of the whole array's output keeps time, on the days the model's fit accepts. Run from the repository root. It doesn't: about 10 minutes RMS against the model's 33 s, so it isn't worth combining.
 
 Expect hard-coded dates.

@@ -16,6 +16,8 @@ The weather station here has an irradiance sensor. Here's what a week of it look
 
 The sensor only sees direct sun from roughly 95 minutes before solar noon to 125 minutes after. The rest of the day it sits in shade. Fitting a curve to that finds the middle of the gap between the trees, not noon. On the days that fit at all, the answers were 8 to 30 minutes off.
 
+The whole array's output has an obvious midday peak on a clear day too, and it doesn't do better. Over 23 clear days its centre sat about 24 minutes before solar noon, set by the shade and the roof, and wandered around that by about 10 minutes RMS (`analysis/peak.py`). The top is flat: the array stays within 3% of its peak for about 38 minutes, so haze, thin cloud and the panels heating up move the apparent peak by minutes.
+
 ## What the panels show
 
 The roof has 17 panels with per-panel monitoring, one inverter each. Their output, each scaled to its own maximum, over the same week:
