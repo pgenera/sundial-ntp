@@ -53,6 +53,7 @@ Run it from the repository root. It's idempotent, so re-run it after pulling cha
    - `solar-noon-feed.service`, the SHM feeder;
    - `solar-noon.timer`, the evening estimate, every 30 minutes from 16:00 to 23:30;
    - `solar-noon-learn.timer`, the weekly re-learn, Sundays at 03:00;
+   - `chrony-solar-exporter.service`, a [chrony_exporter](https://github.com/SuperQ/chrony_exporter) on port 9124, if `/opt/chrony-exporter/chrony_exporter` exists (see [Monitoring](#monitoring));
 5. learns a first model.
 
 Before that it writes the first `refclock.conf`, since chronyd won't start without it.
@@ -100,6 +101,18 @@ sudo sqlite3 /var/lib/solar-noon/log.db \
 
 Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn` and `chronyd-solar`. chronyd writes no statistics files; the feed logs a line whenever the offset it serves changes.
 
+## Monitoring
+
+`chrony-solar-exporter.service` runs chrony_exporter against the solar chronyd's command socket, so it reports `serverstats` as well as tracking and sources. The installer doesn't fetch the binary. Put it in place once, then re-run the installer:
+
+```sh
+curl -LO https://github.com/SuperQ/chrony_exporter/releases/download/v0.14.0/chrony_exporter-0.14.0.linux-amd64.tar.gz
+sudo install -D -m 0755 <(tar xzOf chrony_exporter-0.14.0.linux-amd64.tar.gz chrony_exporter-0.14.0.linux-amd64/chrony_exporter) \
+        /opt/chrony-exporter/chrony_exporter
+```
+
+Then scrape `HOST:9124`. `chrony_up` says whether chronyd answers, and `rate(chrony_serverstats_ntp_packets_received_total[15m])` says whether NTP requests are reaching it.
+
 ## When things go wrong
 
 **The feed logs "no NTP SHM segment".** chronyd isn't running, or its `refclock SHM` unit doesn't match `[feed] shm_unit`. Check `ipcs -m`: unit 7 is key `0x4e545037`, and it should be owned by `_chrony` with mode 660. If some other process created that key first, with the wrong owner or permissions, chronyd can't use it. Remove it with `ipcrm -M 0x4e545037` and restart `chronyd-solar`.
@@ -120,8 +133,8 @@ Logs are in the journal under `solar-noon`, `solar-noon-feed`, `solar-noon-learn
 
 ```sh
 sudo systemctl disable --now solar-noon.timer solar-noon-learn.timer chronyd-solar-refclock.path \
-        solar-noon-feed.service chronyd-solar.service
-sudo rm /etc/systemd/system/{chronyd-solar,chronyd-solar-refclock,solar-noon,solar-noon-feed,solar-noon-learn}.service \
+        solar-noon-feed.service chronyd-solar.service chrony-solar-exporter.service
+sudo rm /etc/systemd/system/{chronyd-solar,chronyd-solar-refclock,solar-noon,solar-noon-feed,solar-noon-learn,chrony-solar-exporter}.service \
         /etc/systemd/system/{solar-noon,solar-noon-learn}.timer /etc/systemd/system/chronyd-solar-refclock.path
 sudo systemctl daemon-reload
 sudo rm -r /opt/chrony-solar /etc/chrony-solar /var/lib/solar-noon /var/lib/chrony-solar

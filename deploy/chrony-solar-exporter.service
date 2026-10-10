@@ -1,0 +1,36 @@
+[Unit]
+Description=Prometheus exporter for the solar chronyd
+Documentation=https://github.com/SuperQ/chrony_exporter
+After=chronyd-solar.service
+Wants=chronyd-solar.service
+
+[Service]
+Type=exec
+# _chrony so it can use the solar chronyd's command socket, which answers
+# serverstats; the read-only ::1 port refuses that.  The exporter puts its
+# reply socket next to chronyd's, hence the writable runtime directory.
+User=_chrony
+Group=_chrony
+ExecStart=/opt/chrony-exporter/chrony_exporter \
+    --chrony.address=unix:///run/chrony-solar/chronyd.sock \
+    --collector.tracking \
+    --collector.sources \
+    --collector.serverstats \
+    --no-collector.dns-lookups \
+    --web.listen-address=:9124
+Restart=on-failure
+RestartSec=10
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run/chrony-solar
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

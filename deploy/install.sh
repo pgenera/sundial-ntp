@@ -71,6 +71,16 @@ journalctl -u solar-noon-learn.service -n 5 --no-pager -o cat
 echo "== enable timers"
 systemctl enable --now solar-noon.timer solar-noon-learn.timer
 
+echo "== Prometheus exporter on :9124 (needs /opt/chrony-exporter/chrony_exporter)"
+install -m 0644 deploy/chrony-solar-exporter.service /etc/systemd/system/
+systemctl daemon-reload
+if [ -x /opt/chrony-exporter/chrony_exporter ]; then
+    systemctl enable chrony-solar-exporter.service
+    systemctl restart chrony-solar-exporter.service
+else
+    echo "no /opt/chrony-exporter/chrony_exporter; skipping (see docs/operations.md)"
+fi
+
 echo "== status"
 systemctl --no-pager --lines=0 status chronyd-solar.service solar-noon-feed.service || true
 ss -lunp | grep -E ':123\b' || true
