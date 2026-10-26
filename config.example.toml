@@ -30,7 +30,7 @@ chronyc = "chronyc"
 shm_unit = 7
 # Stop feeding if the last accepted fix is older than this.  The refclock
 # file then marks SUN noselect, and chronyd falls back to `local stratum 10`.
-max_age_days = 14
+max_age_days = 30
 # Serve the median (or mean) of the accepted fixes from this many days,
 # ending at the newest one.  Each day's fix is about ±45 s of mostly
 # independent scatter, so combining a week of them serves ~7-13 s instead.

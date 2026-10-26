@@ -64,7 +64,7 @@ The model is learned from past data timed by the system clock. That's the one pl
 
 A sundial has to be set up once. You mark its hours by comparing its shadow with a trusted clock, and after that it tells time on its own. `solar-noon learn` is the marking step. It records where each panel's shade edges fell, in system-clock time, over the last 60 days. `solar-noon apply` is the telling step. It uses only that frozen model and today's sunlight.
 
-Learning can't be done once and forgotten, though. The model only knows sun positions it has seen, and the sun's path changes by up to 0.4° of declination a day around the equinoxes. So it gets re-learned weekly, and `apply` refuses to run if today is more than 4° of declination from anything in the model.
+Learning can't be done once and forgotten, though. The model only knows sun positions it has seen, and the sun's path changes by up to 0.4° of declination a day around the equinoxes. So it gets re-learned daily, and `apply` refuses to run if today is more than 4° of declination from anything in the model.
 
 The honest summary: over weeks, the offset is pinned to the system clock by re-learning. Day to day, the number comes from the sun. The back-test numbers in the README are for models one and two weeks old, which is the situation the server is actually in.
 
@@ -108,7 +108,7 @@ An honest bound of tens of seconds is far beyond what any client will sync to (c
 
 ## What it doesn't do
 
-- **Leaf fall moves the shade.** Trees drop their leaves, so edges will shift through October and November. Weekly re-learning follows slow changes, but expect worse numbers while the trees are changing fastest.
+- **Leaf fall moves the shade.** Trees drop their leaves, so edges will shift through October and November. Daily re-learning follows slow changes, but expect worse numbers while the trees are changing fastest.
 - **The history is short.** Per-panel data starts 2026-08-21, so everything above rests on about five weeks of panels and nine of the sensor. A year from now the model will have seen every season once.
 - **The snow fallback is barely tested.** Only a handful of days so far have been clear across the sensor's whole sunny window.
 - **Nothing will sync to it.** The root distance it advertises is honest, which puts it far past every common client's limit and past NTP's 16 s maximum dispersion, so clients discard the replies. The README's [Try it](../README.md#try-it) reads one by hand.

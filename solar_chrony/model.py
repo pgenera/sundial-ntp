@@ -16,6 +16,7 @@ is unusable (snow on the panels, a dead sensor).
 
 import json
 import math
+import os
 import statistics
 from dataclasses import dataclass, field
 from datetime import date
@@ -177,11 +178,15 @@ class Model:
 
     # ---- persistence -------------------------------------------------
     def save(self, path: str) -> None:
-        with open(path, "w") as f:
+        # Write beside the model and rename it into place, so the evening
+        # estimate never reads a half-written file.
+        tmp = f"{path}.tmp"
+        with open(tmp, "w") as f:
             json.dump({"version": 1, "ha_lo": HA_LO, "ha_hi": HA_HI,
                        "lat": self.lat, "lon": self.lon, "meta": self.meta,
                        "stats": self.stats, "config": self.cfg.__dict__,
                        "days": [d.to_json() for d in self.days]}, f)
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path: str, cfg: ModelConfig | None = None) -> "Model":

@@ -52,7 +52,7 @@ Run it from the repository root. It's idempotent, so re-run it after pulling cha
    - `chronyd-solar-refclock.path`, which restarts it when the feed rewrites `/var/lib/solar-noon/refclock.conf` with a new error bound;
    - `solar-noon-feed.service`, the SHM feeder;
    - `solar-noon.timer`, the evening estimate, every 30 minutes from 16:00 to 23:30;
-   - `solar-noon-learn.timer`, the weekly re-learn, Sundays at 03:00;
+   - `solar-noon-learn.timer`, the daily re-learn, at 03:00;
    - `chrony-solar-exporter.service`, a [chrony_exporter](https://github.com/SuperQ/chrony_exporter) on port 9124, if `/opt/chrony-exporter/chrony_exporter` exists (see [Monitoring](#monitoring));
 5. learns a first model.
 
@@ -85,7 +85,7 @@ run() { sudo -u chrony-solar python3 -m solar_chrony.main -c /etc/chrony-solar/s
 run backtest --gap 7          # how a week-old model would have done, per fix and as served
 run backtest --without-panels # the same, pretending the panels are snowed over
 run apply --dry-run           # tonight's estimate, without publishing it (after sunset)
-run learn                     # re-learn now instead of waiting for Sunday
+run learn                     # re-learn now instead of waiting for 03:00
 run status                    # tracking and sources over ::1 port 11323
 run refclock                  # rewrite refclock.conf with the current error bound now
 ```
@@ -121,7 +121,7 @@ Then scrape `HOST:9124`. `chrony_up` says whether chronyd answers, and `rate(chr
 
 **chronyd-solar restarts now and then.** That's the error bound changing: at each new fix, and once a day as the newest fix ages. `journalctl -u chronyd-solar-refclock` lists them. More often than that means something else is rewriting `refclock.conf`.
 
-**`apply` says "model stale".** Today's sun path is more than 4° of declination from anything in the model. That means the weekly re-learn hasn't been running. Run `learn`, then check `systemctl list-timers 'solar-noon*'`.
+**`apply` says "model stale".** Today's sun path is more than 4° of declination from anything in the model. That means the daily re-learn hasn't been running. Run `learn`, then check `systemctl list-timers 'solar-noon*'`.
 
 **`apply` says a model "was learned with a different day window".** The code changed the profile format. Run `learn` again.
 
